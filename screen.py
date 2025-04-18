@@ -9,7 +9,7 @@ from time import sleep
 from sys import platform
 import tkinter as tk
 from tkinter.scrolledtext import ScrolledText
-from faster_whisper import WhisperModel
+from insanely_fast_whisper import WhisperModel
 
 
 class TranscriptionWindow:
@@ -64,8 +64,8 @@ def run_whisper(text_queue, args):
     else:
         source = sr.Microphone(sample_rate=16000)
 
-    print(f"Loading faster-whisper model: {args.model} ...")
-    model = WhisperModel(args.model, compute_type="int8")  # int8 = fastest
+    print(f"Loading insanely-fast-whisper model: {args.model} ...")
+    model = WhisperModel(model=args.model, compute_type="int8", language="en")
     print("Model loaded.\n")
 
     record_timeout = args.record_timeout
@@ -100,7 +100,7 @@ def run_whisper(text_queue, args):
 
                 audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
 
-                segments, _ = model.transcribe(audio_np, language="en", word_timestamps=True)
+                segments, _ = model.transcribe(audio_np, word_timestamps=True)
 
                 if chunk_gap:
                     text_queue.put("\n")
@@ -123,9 +123,8 @@ def run_whisper(text_queue, args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Real-time mic transcription with faster-whisper on Raspberry Pi.")
-    parser.add_argument("--model", default="tiny.en", choices=["tiny", "tiny.en", "base", "base.en"], help="Faster-Whisper model to use.")
-    parser.add_argument("--non_english", action="store_true", help="Keep for compatibility. Ignored in faster-whisper.")
+    parser = argparse.ArgumentParser(description="Real-time transcription using insanely-fast-whisper.")
+    parser.add_argument("--model", default="base.en", choices=["tiny.en", "tiny", "base.en", "base"], help="Whisper model to use.")
     parser.add_argument("--energy_threshold", default=1000, type=int, help="Mic detection threshold.")
     parser.add_argument("--record_timeout", default=1.0, type=float, help="Seconds of audio before processing.")
     parser.add_argument("--phrase_timeout", default=1.0, type=float, help="Silence gap between phrases.")
