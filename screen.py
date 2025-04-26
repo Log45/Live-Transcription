@@ -21,12 +21,15 @@ class TranscriptionWindow:
         self.root.configure(bg="black")
         self.root.geometry("800x200")
         self.root.resizable(True, True)
+        self.screen_width = self.root.winfo_screenwidth()
+        self.screen_height = self.root.winfo_screenheight()
 
         self.text_display = ScrolledText(
-            self.root, wrap=tk.WORD, font=("Arial", 16),
+            self.root, wrap=tk.WORD, font=("Arial", self.screen_height // 10),
             fg="white", bg="black", padx=10, pady=10
         )
         self.text_display.pack(expand=True, fill="both")
+        self.root.attributes('-fullscreen', True)
 
         self.update_text()
         self.root.mainloop()
@@ -62,7 +65,7 @@ def run_whisper(text_queue, args):
                 return
             source = sr.Microphone(sample_rate=16000, device_index=found_idx)
     else:
-        source = sr.Microphone(sample_rate=16000)
+        source = sr.Microphone(2, sample_rate=16000)
 
     print(f"Loading faster-whisper model: {args.model} ...")
     model = WhisperModel(args.model, compute_type="int8")  # int8 = fastest
@@ -124,11 +127,11 @@ def run_whisper(text_queue, args):
 
 def main():
     parser = argparse.ArgumentParser(description="Real-time mic transcription with faster-whisper on Raspberry Pi.")
-    parser.add_argument("--model", default="tiny.en", choices=["tiny", "tiny.en", "base", "base.en"], help="Faster-Whisper model to use.")
+    parser.add_argument("--model", default="small.en", choices=["tiny", "tiny.en", "base", "base.en", "small", "small.en"], help="Faster-Whisper model to use.")
     parser.add_argument("--non_english", action="store_true", help="Keep for compatibility. Ignored in faster-whisper.")
     parser.add_argument("--energy_threshold", default=1000, type=int, help="Mic detection threshold.")
-    parser.add_argument("--record_timeout", default=1.0, type=float, help="Seconds of audio before processing.")
-    parser.add_argument("--phrase_timeout", default=1.0, type=float, help="Silence gap between phrases.")
+    parser.add_argument("--record_timeout", default=2.0, type=float, help="Seconds of audio before processing.")
+    parser.add_argument("--phrase_timeout", default=0.5, type=float, help="Silence gap between phrases.")
 
     if "linux" in platform:
         parser.add_argument("--default_microphone", default="pulse", type=str, help="Mic name on Linux. Use 'list' to list devices.")
