@@ -20,60 +20,42 @@ import tkinter as tk
 from tkinter.scrolledtext import ScrolledText
 from faster_whisper import WhisperModel
 
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
-import torch
-
-def quantize_model(model_id="medium", save_dir="quantized_whisper", use_4bit=True):
+def quantize_model(model_id, save_dir, precision="int4"):
     """
-    Quantizes Whisper model for CPU using dynamic int8 quantization and saves it.
-
+    Quantizes the specified model and saves it to the given directory.
+    
     Args:
-        model_id (str): Size of Whisper model (e.g., 'tiny', 'base', 'medium').
-        save_dir (str): Directory to save the quantized model.
+        model_id (str): The ID of the model to be quantized.
+        save_dir (str): The directory where the quantized model will be saved.
     """
+    # Export model in ONNX format
     model_name = f"openai/whisper-{model_id}"
+    ort_model = ORTModelForSpeechSeq2Seq.from_pretrained(model_name, export=True)
+    model_dir = ort_model.model_save_dir
 
-    # Load the original model
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(model_name)
-    model.eval()
+    # Run quantization for all ONNX files of exported model
+    onnx_models = list(Path(model_dir).glob("*.onnx"))
+    print(onnx_models)
+    
+    quantizers = [ORTQuantizer.from_pretrained(model_dir, file_name=onnx_model) for onnx_model in onnx_models]
 
-    # Quantize the model dynamically (int8 for CPU)
-    quantized_model = torch.quantization.quantize_dynamic(
-        model,
-        dtype=torch.qint8,  # Using int8 quantization for CPU
-        inplace=False
-    )
+    qconfig = AutoQuantizationConfig.avx512_vnni(is_static=False, per_channel=False)
 
-    # Save quantized model
-    Path(save_dir).mkdir(parents=True, exist_ok=True)
-    quantized_model.save_pretrained(save_dir)
-
-    # Save processor too
-    processor = AutoProcessor.from_pretrained(model_name)
-    processor.save_pretrained(save_dir)
-
-    print(f"Quantized model saved to: {save_dir}")
+    for quantizer in quantizers:
+        # Apply dynamic quantization and save the resulting model
+        quantizer.quantize(save_dir=save_dir, quantization_config=qconfig)
 
 def load_model(model_dir):
     # Load the model and processor
-    processor = AutoProcessor.from_pretrained(model_dir)
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(model_dir, device_map="auto")
-    return processor, model
+    model = ORTModelForSpeechSeq2Seq.from_pretrained(model_dir)
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    feature_extractor = AutoFeatureExtractor.from_pretrained(model_dir)
+    cls_pipeline_onnx = pipeline("automatic-speech-recognition", model=model, tokenizer=tokenizer, feature_extractor=feature_extractor)
+    return cls_pipeline_onnx
 
-@torch.inference_mode()
-def transcribe(processor, model, audio_data: np.ndarray):
-    model.eval()
-
-    # Prepare input features
-    inputs = processor(audio_data, sampling_rate=16000, return_tensors="pt").to(model.device)
-
-    # Generate
-    
-    generated_ids = model.generate(inputs["input_features"])
-
-    # Decode
-    transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-    return transcription
+def transcribe(pipeline, audio_data: np.ndarray):
+    # load dummy dataset and read audio files
+    return pipeline(audio_data, sampling_rate=16000, return_timestamps=True)["text"]
 
 class TranscriptionWindow:
     def __init__(self, text_queue):
@@ -129,7 +111,7 @@ def run_whisper(text_queue, args):
 
     print(f"Loading whisper model: {args.model} ...")
 
-    processor, model = load_model(args.model)
+    model = load_model(args.model)
     
     print("Model loaded.\n")
 
@@ -165,7 +147,7 @@ def run_whisper(text_queue, args):
 
                 audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
 
-                segments = transcribe(processor, model, audio_np)
+                segments = transcribe(model, audio_np)
 
                 if chunk_gap:
                     text_queue.put("\n")
@@ -205,7 +187,7 @@ def main():
     if args.quantize:
         model_id = args.model
         save_dir = f"quantized_{model_id}"
-        quantize_model(model_id, save_dir)
+        quantize_model(model_id, save_dir, args.quant_precision)
         print(f"Quantized model saved to {save_dir}")
         return
     else:
